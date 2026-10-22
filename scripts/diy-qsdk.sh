@@ -18,24 +18,40 @@ else
     exit 1
 fi
 
-echo "== 让镜像同时兼容 cmcc,rax3000qy（这台机器实际的 board_name）=="
+echo "== 补 sysupgrade 镜像 + 兼容 cmcc,rax3000qy（本机实际 board_name）=="
 IMG_MK="target/linux/ipq50xx/image/Makefile"
 if [ -f "$IMG_MK" ]; then
 python3 - "$IMG_MK" <<'PY'
 import sys, re
 p = sys.argv[1]
 s = open(p).read()
-if 'rax3000qy' in s:
-    print('  已包含 rax3000qy')
-else:
-    pat = re.compile(r'(define Device/cmcc_rax3000q\b[\s\S]*?)(\n\s*endef)')
-    new, n = pat.subn(lambda m: m.group(1) +
-        '\n  SUPPORTED_DEVICES := cmcc,rax3000q cmcc,rax3000qy' + m.group(2), s, count=1)
-    if n:
-        open(p, 'w').write(new)
-        print('  已追加 SUPPORTED_DEVICES: cmcc,rax3000q cmcc,rax3000qy')
+pat = re.compile(r'(define Device/cmcc_rax3000q\b[\s\S]*?)(\n\s*endef)')
+
+def fix(m):
+    body = m.group(1)
+    # 设备块里的 IMAGES := nand-factory.ubi 覆盖了 Device/UbiFit 默认的
+    # "nand-factory.ubi nand-sysupgrade.bin"，导致只出 factory 镜像——
+    # 刷完以后每次升级都得进 U-Boot，这里补回 sysupgrade
+    body2, k = re.subn(r'^(\s*)IMAGES := nand-factory\.ubi\s*$',
+                       r'\1IMAGES := nand-factory.ubi nand-sysupgrade.bin',
+                       body, count=1, flags=re.M)
+    if k:
+        print('  已补回 nand-sysupgrade.bin')
+    elif 'nand-sysupgrade' in body:
+        print('  已有 sysupgrade 镜像')
     else:
-        print('!! 没匹配到 define Device/cmcc_rax3000q，刷机时请用 sysupgrade -F')
+        body2 = body + '\n  IMAGES := nand-factory.ubi nand-sysupgrade.bin'
+        print('  已追加 sysupgrade 镜像定义')
+    if 'SUPPORTED_DEVICES' in body:
+        return body2 + m.group(2)
+    return body2 + '\n  SUPPORTED_DEVICES := cmcc,rax3000q cmcc,rax3000qy' + m.group(2)
+
+new, n = pat.subn(fix, s, count=1)
+if n:
+    open(p, 'w').write(new)
+    print('  已写入 SUPPORTED_DEVICES: cmcc,rax3000q cmcc,rax3000qy')
+else:
+    print('!! 没匹配到 define Device/cmcc_rax3000q，刷机请用 sysupgrade -F')
 PY
 else
     echo "!! 找不到 $IMG_MK（上游可能改路径）"
