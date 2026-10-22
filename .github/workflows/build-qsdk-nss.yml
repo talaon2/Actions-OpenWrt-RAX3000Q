@@ -1,11 +1,9 @@
-# 轨道 B：ImmortalWrt 21.02 + QSDK 5.4（Wi-Fi / NSS 硬件加速可用）+ PassWall
+# RAX3000QY 固件编译：ImmortalWrt 21.02 / QSDK 5.4（Wi-Fi + NSS 硬件加速）+ PassWall + Xray
 #
-# 源码：kkstone/immortalwrt-ipq50xx（openwrt-21.02 分支，参考仓库 Actions-OpenWrt-RAX3000Q 所用同一套源码）
-# 产物：openwrt-ipq50xx-arm-cmcc_rax3000q-nand-factory.ubi
-#       openwrt-ipq50xx-arm-cmcc_rax3000q-nand-sysupgrade.bin
-#
-# 与轨道 A 的区别：内核是 QSDK 5.4（老），但 Wi-Fi（IPQ5018 + QCN6102）和
-# NAT/Wi-Fi NSS 硬件加速可用，且 ImmortalWrt 21.02 源里自带 v2ray-core。
+# 源码：kkstone/immortalwrt-ipq50xx（openwrt-21.02 分支）
+# 目标：ipq50xx / arm / cmcc_rax3000q
+# 产物：openwrt-ipq50xx-arm-cmcc_rax3000q-nand-factory.ubi     （U-Boot 网页首次刷入）
+#       openwrt-ipq50xx-arm-cmcc_rax3000q-nand-sysupgrade.bin  （已在 OpenWrt 上升级）
 name: RAX3000QY 正式版 (PassWall + Xray / QSDK NSS)
 
 on:
@@ -16,9 +14,6 @@ on:
         required: false
         default: false
         type: boolean
-  schedule:
-    # 每月 1 日 19:00 UTC 跟踪一次
-    - cron: '0 19 1 * *'
   repository_dispatch:
 
 env:
@@ -89,11 +84,11 @@ jobs:
           mixkey: 'immortalwrt21-ipq50xx-passwall'
           prefix: ${{ github.workspace }}/openwrt
 
-      - name: 升级 golang（源自带 1.19 编不了 xray/v2ray）
+      - name: 升级 golang（源自带 1.19 编不了 xray）
         working-directory: /workdir/openwrt
         run: |
-          # ImmortalWrt 21.02 的 golang 是 1.19，而 xray-core 1.8.3 / v2ray-core 5.7.0
-          # 的 go.mod 要求 go >= 1.20，不换会直接编译失败
+          # ImmortalWrt 21.02 的 golang 是 1.19，而 xray-core 的 go.mod 要求
+          # go >= 1.20，不换会直接编译失败
           rm -rf feeds/packages/lang/golang
           mkdir -p feeds/packages/lang
           git clone --depth 1 https://github.com/kenzok8/golang -b 1.25 feeds/packages/lang/golang
@@ -105,24 +100,46 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: DIY（载入配置 + 打开 PassWall/v2ray）
+      - name: DIY（载入配置 + 打开 PassWall/Xray + 设备补丁）
         working-directory: /workdir/openwrt
         run: |
           chmod +x "$GITHUB_WORKSPACE/$DIY_SH"
           "$GITHUB_WORKSPACE/$DIY_SH"
 
-      - name: 校验目标设备与 PassWall
+      - name: 校验设备、关键包与补丁
         working-directory: /workdir/openwrt
         run: |
           set -e
+          echo "== 目标设备 =="
           grep -E '^CONFIG_TARGET_ipq50xx_arm_DEVICE_cmcc_rax3000q=y' .config
-          for p in luci-app-passwall xray-core; do
+
+          echo "== PassWall 及其依赖 =="
+          for p in luci-app-passwall xray-core v2ray-geoip v2ray-geosite; do
             grep -q "^CONFIG_PACKAGE_${p}=y" .config || {
               echo "::error::${p} 没有被选中"
               exit 1
             }
           done
-          grep -E '^CONFIG_PACKAGE_(xray-core|v2ray-core|v2ray-geo)' .config || true
+
+          echo "== 设备块补丁是否生效 =="
+          grep -q 'rax3000qy' target/linux/ipq50xx/image/Makefile || {
+            echo "::error::SUPPORTED_DEVICES 补丁未生效（将无法识别 rax3000qy）"
+            exit 1
+          }
+          grep -q 'nand-sysupgrade' target/linux/ipq50xx/image/Makefile || {
+            echo "::error::sysupgrade 镜像未补回（以后只能进 U-Boot 刷机）"
+            exit 1
+          }
+
+          echo "== 数据源已失效的包必须关闭 =="
+          ! grep -q '^CONFIG_PACKAGE_v2ray-geodata=y' .config || {
+            echo "::error::v2ray-geodata 仍处于开启状态（其数据源已 404，会在下载阶段失败）"
+            exit 1
+          }
+
+          if grep -q '^CONFIG_PACKAGE_v2ray-core=y' .config; then
+            echo "::warning::v2ray-core 被依赖重新拉入，镜像体积与编译时间会增加"
+          fi
 
       - name: 叠加自定义 files/（Kwrt 风格默认设置）
         if: hashFiles('files/**') != ''
@@ -173,7 +190,7 @@ jobs:
           cp -a /workdir/openwrt/.config out/config.final.txt || true
           ls -lh out/
           {
-            echo "## 轨道 B 编译完成"
+            echo "## 编译完成"
             echo ""
             cat "$GITHUB_WORKSPACE/openwrt-head.txt"
             echo ""
@@ -213,10 +230,14 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: qsdk-nss-ipq50xx-${{ github.run_number }}
-          name: 轨道B ImmortalWrt QSDK NSS #${{ github.run_number }}
+          name: RAX3000QY QSDK NSS #${{ github.run_number }}
           body: |
-            ImmortalWrt 21.02 + QSDK 5.4（Wi-Fi + NSS）for CMCC RAX3000Q / RAX3000QY
-            预置：LuCI 中文 + PassWall + Xray / v2ray-core
-            刷机：进 U-Boot 网页（192.168.1.1）刷 nand-factory.ubi
+            ImmortalWrt 21.02 + QSDK 5.4（Wi-Fi + NSS 硬件加速），适用于 CMCC RAX3000Q / RAX3000QY。
+
+            预置：LuCI 中文界面 + Argon 主题 + PassWall + Xray
+            默认：管理地址 http://192.168.10.1，root / root，SSID RAX3000（开放网络）
+
+            刷机：进 U-Boot 网页刷 `nand-factory.ubi`；
+            已运行 OpenWrt 的机器用 `nand-sysupgrade.bin` 升级（保留配置）。
           files: out/*
           fail_on_unmatched_files: false
