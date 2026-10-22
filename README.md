@@ -1,42 +1,41 @@
-# Actions-OpenWrt-RAX3000Q（集成 PassWall + Xray/v2ray）
+# Actions-OpenWrt-RAX3000QY（PassWall + Xray）
 
-用 GitHub Actions 给 **CMCC RAX3000Q / RAX3000QY** 云编译固件，参考
-[kkstone/Actions-OpenWrt-RAX3000Q](https://github.com/kkstone/Actions-OpenWrt-RAX3000Q)
-与 [P3TERX/Actions-OpenWrt](https://github.com/P3TERX/Actions-OpenWrt) 的骨架。
+用 GitHub Actions 给 **CMCC RAX3000Q / RAX3000QY** 云编译固件。骨架参考
+[P3TERX/Actions-OpenWrt](https://github.com/P3TERX/Actions-OpenWrt)，源码与配置参考
+[kkstone/Actions-OpenWrt-RAX3000Q](https://github.com/kkstone/Actions-OpenWrt-RAX3000Q)，
+机型与 U-Boot 依据 [sfxfs/rax3000qy-OpenWrt](https://github.com/sfxfs/rax3000qy-OpenWrt)。
 
-固件预置：**LuCI 中文界面 + PassWall + Xray（兼容 v2ray 协议/订阅）**，并根据你选的分支
-额外带上 **v2ray-core**、Wi-Fi、NSS 加速等能力。
+固件预置：**LuCI 中文界面 + PassWall + Xray**，并带 **Wi-Fi（IPQ5018 2.4G + QCN6102 5G）**
+与 **NSS 硬件加速**。
 
 界面采用 **Kwrt 风格**：默认 **Argon 主题**（毛玻璃 + 明暗模式 + 可换登录页背景），
-开机即为中文，默认主机名 `RAX3000Q`、时区 `Asia/Shanghai`。
+开机即为中文，主机名 `RAX3000QY`、时区 `Asia/Shanghai`。
 
 ---
 
-## 一、两条编译轨道（选一条跑就行）
+## 一、编译轨道（只有一条）
 
-| | **轨道 A：官方 mainline（推荐，内核最新）** | 轨道 B：ImmortalWrt 21.02 + QSDK 5.4 |
-|---|---|---|
-| 工作流 | `.github/workflows/build-mainline.yml` | `.github/workflows/build-qsdk-nss.yml` |
-| 源码 | `openwrt/openwrt` **main**（snapshot，内核 6.x） | `kkstone/immortalwrt-ipq50xx` `openwrt-21.02` |
-| 设备符号 | `qualcommax / ipq50xx / cmcc_rax3000q` | `ipq50xx / arm / cmcc_rax3000q` |
-| 包管理 | `apk` | `opkg` |
-| Wi-Fi | ⚠️ 实验性：上游因 256MB 内存把 DTS 里的 Wi-Fi 关闭了，且**没有板级 BDF**；工作流可打补丁打开，但不保证能用 | ✅ IPQ5018（2.4G）+ QCN6102（5G），有板级 BDF |
-| NSS 硬件加速 | ❌（官方主线未合入 offload 栈） | ✅ NAT + Wi-Fi NSS |
-| 界面 | Argon 主题（jerrykuku 新版，ucode 架构）+ `luci-app-argon-config` | Argon 主题（ImmortalWrt feed 自带，Lua 架构） |
-| PassWall 核心 | `xray-core`（PassWall 上游已不再维护 v2ray-core） | `xray-core` + `v2ray-core` 都编入 |
-| 产物 | `*squashfs-factory.ubi` / `*squashfs-sysupgrade.bin` | `*nand-factory.ubi` / `*nand-sysupgrade.bin` |
+| | 正式版：ImmortalWrt 21.02 + QSDK 5.4 |
+|---|---|
+| 工作流 | `.github/workflows/build-qsdk-nss.yml`（Actions 页 → 点 Run workflow） |
+| 源码 | `kkstone/immortalwrt-ipq50xx` `openwrt-21.02` |
+| 设备符号 | `ipq50xx / arm / cmcc_rax3000q`（镜像同时兼容 `cmcc,rax3000qy`） |
+| 包管理 | `opkg` |
+| Wi-Fi | ✅ IPQ5018（2.4G）+ QCN6102（5G），有板级 BDF |
+| NSS 硬件加速 | ✅ NAT + Wi-Fi NSS |
+| 界面 | Argon 主题（ImmortalWrt feed 自带，Lua 架构）+ 中文语言包 |
+| PassWall 核心 | `xray-core`（VLESS / VMess / Trojan / SS 都支持） |
+| 产物 | `*nand-factory.ubi`（首次刷机）/ `*nand-sysupgrade.bin`（升级） |
 
-> **怎么选**
-> - 想要**最新内核 + 官方长期维护**、只用有线：跑 **轨道 A**。
-> - 想要**Wi-Fi 和 NSS 加速**（家用路由器必需）：跑 **轨道 B**。
+> 原先还有一条「官方 mainline」轨道，已删除，原因有二：
+> 主线**没有板级 Wi-Fi BDF**（无线用不了）；且它的 NAND 分区布局与本机的
+> NWrt U-Boot 不匹配，**实测刷入后无法启动**。
 
-两条轨道各有一处必要的"补丁"（已写进工作流/脚本，出处见括号）：
-- 轨道 A：主线 ipq50xx 的内核配置默认**没有** `NFT_TPROXY` / `NFT_SOCKET` / `NFT_NAT`，
-  不开的话 `kmod-nft-tproxy` 是空包、PassWall 透明代理跑不起来 →
-  `scripts/diy-mainline-part2.sh` 会往 `config-default` 追加这几个符号。
-- 轨道 B：ImmortalWrt 21.02 自带的 golang 是 **1.19**，而 xray-core 1.8.3 /
-  v2ray-core 5.7.0 的 go.mod 要求 **go ≥ 1.20**，不换会直接编译失败 →
-  工作流把 `feeds/packages/lang/golang` 换成 `kenzok8/golang@1.25`。
+两处必要的"补丁"（已写进工作流/脚本）：
+- ImmortalWrt 21.02 自带的 golang 是 **1.19**，而 xray-core 的 go.mod 要求 **go ≥ 1.20**，
+  不换会直接编译失败 → 工作流把 `feeds/packages/lang/golang` 换成 `kenzok8/golang@1.25`。
+- 镜像白名单加了 `cmcc,rax3000qy`：这台机器的 `board_name` 是 `rax3000qy`，
+  不加会在 `sysupgrade` 时报 `Image check failed`。
 
 ---
 
@@ -97,19 +96,20 @@
 
 ---
 
-## 四、PassWall / v2ray 说明
+## 四、PassWall 说明
 
 * 固件里 **PassWall 菜单在「服务 → PassWall」**，首次进入后：
   - 「节点列表」按订阅链接或分享链接导入节点（VMess / VLESS / Trojan / SS 等）；
   - 「全局设置 → 运行模式」建议先用 `中国列表以外`；
   - 「DNS」建议 `ChinaDNS-NG` 或 `Dnsmasq`，并更新一次 GeoIP/GeoSite 数据。
-* **关于 v2ray**：上游 [Openwrt-Passwall](https://github.com/Openwrt-Passwall/openwrt-passwall)
-  自 2026 年起已把 v2ray-core 合并到 **Xray-core**（协议完全向后兼容：VMess、VLESS、
-  Trojan、SS、v2ray 订阅链接都能直接用）。  所以轨道 A 只装 `xray-core`。
-  * 轨道 B 同样**只装 `xray-core`**：`v2ray-core` 体积约 20MB，且要用 Go 再编译一遍
-    （编译时间几乎翻倍），在这台 128MB NAND / 256MB RAM 的机器上不划算，而 xray
-    能直接吃 v2ray 订阅链接。确实需要 v2ray-core 的话，把 `scripts/diy-qsdk.sh` 里的
-    `INCLUDE_V2ray` 与 `CONFIG_PACKAGE_v2ray-core` 改回 `=y` 再编。
+* **只装 `xray-core`**：上游 [Openwrt-Passwall](https://github.com/Openwrt-Passwall/openwrt-passwall)
+  已把 v2ray-core 合并进 Xray（协议完全向后兼容：VMess、VLESS、Trojan、SS、
+  v2ray 订阅链接都能直接用）。`v2ray-core` 体积约 20MB 且要用 Go 再编一遍
+  （编译时间几乎翻倍），在这台 128MB NAND / 256MB RAM 的机器上不划算。
+  确实需要的话，把 `scripts/diy-qsdk.sh` 里 `INCLUDE_V2ray` 与
+  `CONFIG_PACKAGE_v2ray-core` 改回 `=y` 再编。
+  * 唯一例外：**ShadowsocksR（SSR）** Xray 不支持，有 SSR 节点就把
+    `INCLUDE_ShadowsocksR_Libev_Client` 改回 `=y`。
   * 规则数据用 `v2ray-geoip` / `v2ray-geosite`（`v2ray-geodata` 的数据源已 404，
     开了会直接编译失败）。若 PassWall 提示缺少 geo 数据，在 PassWall 里点一次
     「更新规则」在线拉取即可。
@@ -136,18 +136,13 @@
 ```
 Actions-OpenWrt-RAX3000Q/
 ├── .github/workflows/
-│   ├── build-mainline.yml        # 轨道 A：官方 mainline + PassWall(Xray)
-│   └── build-qsdk-nss.yml        # 轨道 B：ImmortalWrt 21.02/QSDK + PassWall(Xray)
-├── files/                        # 打进固件的 overlay（Kwrt 风格默认设置）
+│   └── build-qsdk-nss.yml        # 唯一工作流：ImmortalWrt 21.02/QSDK + PassWall(Xray)
+├── files/                        # 打进固件的 overlay（Kwrt 风格 + 网络/无线默认值）
 │   └── etc/uci-defaults/99-kwrt-style
 ├── configs/
-│   ├── mainline.config           # 轨道 A 种子配置（目标设备 + 要装的包）
-│   └── qsdk-nss.config           # 轨道 B 完整配置（来自参考仓库，已验证）
+│   └── qsdk-nss.config           # 完整配置（来自参考仓库，已验证）
 ├── scripts/
-│   ├── diy-mainline-part1.sh     # A：清理官方 feed 中与 PassWall 重名的旧包
-│   ├── diy-mainline-part2.sh     # A：拉取 PassWall 上游 + 载入配置
-│   ├── diy-qsdk.sh               # B：载入配置 + 打开 PassWall/v2ray
-│   └── enable-wifi.py            # A：给 DTS 追加 overlay 重新打开 Wi-Fi
+│   └── diy-qsdk.sh               # 载入配置 + 打开 PassWall/Xray + 精简无关插件
 └── README.md
 ```
 
@@ -157,13 +152,13 @@ Actions-OpenWrt-RAX3000Q/
 
 | 现象 | 处理 |
 |---|---|
-| 轨道 A 编译报某个 `kmod-*` 缺失 | 官方 main 偶尔改名，等上游修复或把 `ref` 固定到已知可用的提交 |
-| 轨道 A 刷完没有 Wi-Fi | 预期内：上游缺 `ipq-wifi-cmcc_rax3000q` BDF，请改用轨道 B |
-| 镜像超过 58MB 上限 | 少装插件（关掉 `INCLUDE_SingBox`/`Hysteria`/`V2ray_Geodata` 等） |
+| 编译报 `go.mod requires go >= 1.20` | 工作流已把 golang 换成 1.25（该步骤已内置） |
+| 刷完没有 Wi-Fi | 进「网络 → 无线」点启用；默认 SSID 已写入 `RAX3000`（开放网络） |
+| 刷完连不上（ping 不通 `192.168.10.1`） | 电脑设静态 `192.168.10.100`；等 2～3 分钟让首次启动跑完；换个 LAN 口再试 |
+| `Image check failed` | 新镜像已含 `cmcc,rax3000qy`；老镜像请用 `sysupgrade -F -n xxx.bin` |
+| 镜像超过 58MB 上限 | 少装插件（`diy-qsdk.sh` 已关掉大部分无关插件） |
 | PassWall 节点能连但打不开网页 | 检查 DNS 模式、更新 GeoIP/GeoSite、确认路由器时间正确 |
 | 界面还是原生 bootstrap | 检查 `luci-theme-argon` 是否真的被选中（看 `config.final.txt`），或手动执行上面的 uci 命令 |
-| 轨道 B 报 `go.mod requires go >= 1.20` | 工作流已把 golang 换成 1.25；若仍失败，在 `scripts/diy-qsdk.sh` 里把 `INCLUDE_Xray` 改成 `is not set` 只保留 v2ray |
-| 轨道 A 报 `lyaml`/`luci-compat` 缺失 | 官方源偶尔改包名，固定 `ref` 到已知可用的提交再编 |
 | Release 403 | 仓库 Settings → Actions → General → Workflow permissions 选 `Read and write` |
 
 ---
