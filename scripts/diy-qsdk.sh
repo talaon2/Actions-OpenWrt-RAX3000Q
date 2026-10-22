@@ -52,17 +52,19 @@ CONFIG_PACKAGE_luci-i18n-opkg-zh-cn=y
 CONFIG_PACKAGE_luci-i18n-firewall-zh-cn=y
 CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
 
-# ---- 由 diy-qsdk.sh 追加：PassWall / v2ray / xray ----
+# ---- 由 diy-qsdk.sh 追加：PassWall / xray ----
 CONFIG_PACKAGE_luci-app-passwall=y
 CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Xray=y
-CONFIG_PACKAGE_luci-app-passwall_INCLUDE_V2ray=y
+# 只保留 xray-core：xray 兼容 v2ray 协议与订阅；v2ray-core 体积约 20MB 且要用 Go
+# 再编一遍（编译耗时翻倍），128MB NAND / 256MB RAM 的机器上没必要两个都编
+# CONFIG_PACKAGE_luci-app-passwall_INCLUDE_V2ray is not set
 # 注意：21.02 的 v2ray-geodata 写死了 dlc.dat.20231202050515，数据源已 404，
 # 开着它会让整个编译失败；改由 v2ray-geoip / v2ray-geosite 提供规则数据，
 # 装好后可在 PassWall 里点「更新规则」在线拉取最新 geodata
 # CONFIG_PACKAGE_luci-app-passwall_INCLUDE_V2ray_Geodata is not set
 CONFIG_PACKAGE_luci-i18n-passwall-zh-cn=y
 CONFIG_PACKAGE_xray-core=y
-CONFIG_PACKAGE_v2ray-core=y
+# CONFIG_PACKAGE_v2ray-core is not set
 CONFIG_PACKAGE_v2ray-geoip=y
 CONFIG_PACKAGE_v2ray-geosite=y
 # 不需要的内核/服务端组件，省体积
@@ -73,12 +75,15 @@ EOF
 # 参考配置里可能直接选了 v2ray-geodata，一律关掉（数据源 404）
 sed -i 's|^CONFIG_PACKAGE_v2ray-geodata=y|# CONFIG_PACKAGE_v2ray-geodata is not set|' .config
 sed -i 's|^CONFIG_PACKAGE_luci-app-passwall_INCLUDE_V2ray_Geodata=y|# CONFIG_PACKAGE_luci-app-passwall_INCLUDE_V2ray_Geodata is not set|' .config
+# PassWall 开启 INCLUDE_V2ray 会通过依赖把 v2ray-core 拉进来，这里统一关掉只留 xray
+sed -i 's|^CONFIG_PACKAGE_luci-app-passwall_INCLUDE_V2ray=y|# CONFIG_PACKAGE_luci-app-passwall_INCLUDE_V2ray is not set|' .config
+sed -i 's|^CONFIG_PACKAGE_v2ray-core=y|# CONFIG_PACKAGE_v2ray-core is not set|' .config
 
 echo "== make defconfig =="
 make defconfig
 
 echo "== 校验 =="
-for p in luci-app-passwall xray-core v2ray-core; do
+for p in luci-app-passwall xray-core; do
     if grep -q "^CONFIG_PACKAGE_${p}=y" .config; then
         echo "  OK  $p"
     else
