@@ -32,6 +32,29 @@ if [ -d package/luci-theme-argon/compat/luci-app-argon-config ]; then
     rm -rf package/luci-theme-argon/compat
 fi
 
+echo "== 让镜像同时兼容 cmcc,rax3000qy（这台机器实际的 board_name）=="
+IMG_MK="target/linux/qualcommax/image/ipq50xx.mk"
+if [ -f "$IMG_MK" ]; then
+python3 - "$IMG_MK" <<'PY'
+import sys, re
+p = sys.argv[1]
+s = open(p).read()
+if 'rax3000qy' in s:
+    print('  已包含 rax3000qy')
+else:
+    pat = re.compile(r'(define Device/cmcc_rax3000q\b[\s\S]*?)(\n\s*endef)')
+    new, n = pat.subn(lambda m: m.group(1) +
+        '\n  SUPPORTED_DEVICES := cmcc,rax3000q cmcc,rax3000qy' + m.group(2), s, count=1)
+    if n:
+        open(p, 'w').write(new)
+        print('  已追加 SUPPORTED_DEVICES: cmcc,rax3000q cmcc,rax3000qy')
+    else:
+        print('!! 没匹配到 define Device/cmcc_rax3000q，刷机时请用 sysupgrade -F')
+PY
+else
+    echo "!! 找不到 $IMG_MK（上游可能改路径）"
+fi
+
 echo "== 打开 nftables 透明代理所需的内核模块 =="
 # PassWall 的 nftables 模式依赖 kmod-nft-tproxy / kmod-nft-socket / kmod-nft-nat，
 # 而主线 generic + ipq50xx 的内核配置默认没开这些符号，不开的话 kmod 包是空的
