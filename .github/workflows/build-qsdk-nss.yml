@@ -6,7 +6,7 @@
 #
 # 与轨道 A 的区别：内核是 QSDK 5.4（老），但 Wi-Fi（IPQ5018 + QCN6102）和
 # NAT/Wi-Fi NSS 硬件加速可用，且 ImmortalWrt 21.02 源里自带 v2ray-core。
-name: B-ImmortalWrt QSDK NSS (RAX3000Q + PassWall)
+name: RAX3000QY 正式版 (PassWall + Xray / QSDK NSS)
 
 on:
   workflow_dispatch:
