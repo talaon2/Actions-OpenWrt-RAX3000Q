@@ -21,4 +21,34 @@ if [ -f /etc/config/argon ]; then
 	uci -q commit argon
 fi
 
+# ---- 局域网地址 ----
+uci -q set network.lan.ipaddr='192.168.10.1'
+uci -q set network.lan.netmask='255.255.255.0'
+uci -q commit network
+
+# ---- root 默认密码 ----
+passwd root <<'PWEOF' >/dev/null 2>&1
+root
+root
+PWEOF
+
+# ---- 无线：开机即用 SSID RAX3000（开放网络，无密码）----
+# 首次启动时若还没生成 /etc/config/wireless 就先生成一份
+if [ ! -s /etc/config/wireless ]; then
+	/sbin/wifi config >/etc/config/wireless 2>/dev/null \
+		|| /sbin/wifi detect >/etc/config/wireless 2>/dev/null \
+		|| rm -f /etc/config/wireless
+fi
+
+if [ -s /etc/config/wireless ]; then
+	for r in 0 1 2; do
+		uci -q set wireless.radio${r}.disabled=0
+		uci -q set wireless.default_radio${r}.disabled=0
+		uci -q set wireless.default_radio${r}.ssid='RAX3000'
+		uci -q set wireless.default_radio${r}.encryption='none'
+		uci -q delete wireless.default_radio${r}.key 2>/dev/null
+	done
+	uci -q commit wireless
+fi
+
 exit 0
