@@ -71,12 +71,29 @@
 3. 上传对应镜像：
    - 轨道 A：`*squashfs-factory.ubi`
    - 轨道 B：`*nand-factory.ubi`
-4. 刷完断电重启，浏览器访问 `http://192.168.1.1`，`root` 空密码登录（**先设密码**）。
+4. 刷完断电重启，等 2～3 分钟（首次启动要格式化 overlay），然后浏览器访问
+   `http://192.168.10.1`，用 `root` / `root` 登录。
 
-> ⚠️ 风险提示：刷 U-Boot / 刷固件有变砖风险，型号（RAX3000Q 与 RAX3000QY）不可混刷。
-> 请自行确认机型和镜像后再操作。
+### 固件出厂默认值（首次启动自动写入，见 `files/etc/uci-defaults/99-kwrt-style`）
+
+| 项 | 值 |
+|---|---|
+| 管理地址 | `http://192.168.10.1` |
+| 用户名 / 密码 | `root` / `root`（**务必登录后立刻改掉**） |
+| 无线 | SSID `RAX3000`，2.4G + 5G 均开启，**无密码**（开放网络，建议进「网络 → 无线」加 WPA2） |
+| 主机名 / 时区 | `RAX3000QY` / Asia/Shanghai |
+| LAN DHCP | 开，从 `192.168.10.100` 起分配 |
+| WAN | DHCP 客户端（网口按源码定义：`1:wan`，`2/4/5:lan`） |
+
+> ⚠️ 风险提示：刷固件有变砖风险。本机（RAX3000QY）用的是
+> [sfxfs/rax3000qy-OpenWrt](https://github.com/sfxfs/rax3000qy-OpenWrt) 里那套 NWrt
+> U-Boot（`nwrt_rax3000qy_uboot.mbn`）。刷不死靠的是 U-Boot，但**分区布局必须匹配**：
+> 轨道 A（主线 OpenWrt）的 NAND 布局与这套 U-Boot 不一致，实测刷入后无法启动，
+> **请刷轨道 B**（ImmortalWrt/QSDK 体系，与该 U-Boot 同源）。
 >
-> 已经跑着 OpenWrt 的系统，也可以直接在 LuCI「备份/升级」里刷 `*sysupgrade.bin`。
+> 已经跑着 OpenWrt 的系统，可直接在 LuCI「备份/升级」里刷 `*sysupgrade.bin`；
+> 新版镜像已把 `cmcc,rax3000qy` 写进 `SUPPORTED_DEVICES`，不会再报
+> `Device cmcc,rax3000qy not supported by this image`。
 
 ---
 
@@ -88,8 +105,14 @@
   - 「DNS」建议 `ChinaDNS-NG` 或 `Dnsmasq`，并更新一次 GeoIP/GeoSite 数据。
 * **关于 v2ray**：上游 [Openwrt-Passwall](https://github.com/Openwrt-Passwall/openwrt-passwall)
   自 2026 年起已把 v2ray-core 合并到 **Xray-core**（协议完全向后兼容：VMess、VLESS、
-  Trojan、SS、v2ray 订阅链接都能直接用）。所以轨道 A 只装 `xray-core`；
-  轨道 B 使用 ImmortalWrt 21.02 老源，额外把 `v2ray-core` 一起编进去了。
+  Trojan、SS、v2ray 订阅链接都能直接用）。  所以轨道 A 只装 `xray-core`。
+  * 轨道 B 同样**只装 `xray-core`**：`v2ray-core` 体积约 20MB，且要用 Go 再编译一遍
+    （编译时间几乎翻倍），在这台 128MB NAND / 256MB RAM 的机器上不划算，而 xray
+    能直接吃 v2ray 订阅链接。确实需要 v2ray-core 的话，把 `scripts/diy-qsdk.sh` 里的
+    `INCLUDE_V2ray` 与 `CONFIG_PACKAGE_v2ray-core` 改回 `=y` 再编。
+  * 规则数据用 `v2ray-geoip` / `v2ray-geosite`（`v2ray-geodata` 的数据源已 404，
+    开了会直接编译失败）。若 PassWall 提示缺少 geo 数据，在 PassWall 里点一次
+    「更新规则」在线拉取即可。
 * PassWall 依赖 `kmod-nft-tproxy` / `kmod-nft-socket`，是**编进固件**的（不是后装），
   所以请不要指望装官方源的 kmod 包能匹配（内核 vermagic 不同），用户态包不受影响。
 * 256MB 内存 + 约 58MB 镜像上限的设备，别额外塞太多插件；要加插件建议从源码改
@@ -114,7 +137,7 @@
 Actions-OpenWrt-RAX3000Q/
 ├── .github/workflows/
 │   ├── build-mainline.yml        # 轨道 A：官方 mainline + PassWall(Xray)
-│   └── build-qsdk-nss.yml        # 轨道 B：ImmortalWrt 21.02/QSDK + PassWall(Xray+v2ray)
+│   └── build-qsdk-nss.yml        # 轨道 B：ImmortalWrt 21.02/QSDK + PassWall(Xray)
 ├── files/                        # 打进固件的 overlay（Kwrt 风格默认设置）
 │   └── etc/uci-defaults/99-kwrt-style
 ├── configs/
