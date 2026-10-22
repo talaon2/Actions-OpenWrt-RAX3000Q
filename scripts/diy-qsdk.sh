@@ -67,9 +67,42 @@ CONFIG_PACKAGE_xray-core=y
 # CONFIG_PACKAGE_v2ray-core is not set
 CONFIG_PACKAGE_v2ray-geoip=y
 CONFIG_PACKAGE_v2ray-geosite=y
-# 不需要的内核/服务端组件，省体积
+# 不需要的服务端组件，省体积
 # CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Libev_Server is not set
 # CONFIG_PACKAGE_luci-app-passwall_INCLUDE_ShadowsocksR_Libev_Server is not set
+
+# ---- 精简：只要 PassWall + Xray，其余一律关掉（省体积、大幅缩短编译）----
+# Xray 本身支持 VLESS / VMess / Trojan / Shadowsocks，所以这些独立客户端都不需要：
+# CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Libev_Client is not set
+# CONFIG_PACKAGE_luci-app-passwall_INCLUDE_ShadowsocksR_Libev_Client is not set
+# CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Simple_Obfs is not set
+# CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Trojan_Plus is not set
+# CONFIG_PACKAGE_luci-app-passwall_INCLUDE_V2ray_Plugin is not set
+# CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Haproxy is not set
+# 唯一例外是 ShadowsocksR（SSR）——Xray 不支持，用 SSR 节点就把上面 SSR 那行改回 =y
+
+# 与 PassWall 无关的应用：连中文包一起关（只关应用的话，中文包会把它拉回来）
+# CONFIG_PACKAGE_luci-app-zerotier is not set
+# CONFIG_PACKAGE_luci-i18n-zerotier-zh-cn is not set
+# CONFIG_PACKAGE_luci-app-frpc is not set
+# CONFIG_PACKAGE_luci-i18n-frpc-zh-cn is not set
+# CONFIG_PACKAGE_luci-app-upnp is not set
+# CONFIG_PACKAGE_luci-i18n-upnp-zh-cn is not set
+# CONFIG_PACKAGE_luci-app-autoreboot is not set
+# CONFIG_PACKAGE_luci-i18n-autoreboot-zh-cn is not set
+# CONFIG_PACKAGE_luci-app-watchcat is not set
+# CONFIG_PACKAGE_luci-i18n-watchcat-zh-cn is not set
+# 下面这些只选了中文包、应用本身没选，同样关掉避免反向拉入
+# CONFIG_PACKAGE_luci-i18n-ddns-go-zh-cn is not set
+# CONFIG_PACKAGE_luci-i18n-natmap-zh-cn is not set
+# CONFIG_PACKAGE_luci-i18n-vlmcsd-zh-cn is not set
+# CONFIG_PACKAGE_luci-i18n-wol-zh-cn is not set
+# CONFIG_PACKAGE_luci-i18n-xlnetacc-zh-cn is not set
+# CONFIG_PACKAGE_luci-i18n-filetransfer-zh-cn is not set
+# CONFIG_PACKAGE_luci-i18n-turboacc-zh-cn is not set
+# 保留：luci-app-ttyd（排障用的网页终端，很轻）+ Argon 主题与中文基础包
+CONFIG_PACKAGE_luci-app-ttyd=y
+CONFIG_PACKAGE_luci-i18n-ttyd-zh-cn=y
 EOF
 
 # 参考配置里可能直接选了 v2ray-geodata，一律关掉（数据源 404）
