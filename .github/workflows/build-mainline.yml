@@ -1,0 +1,277 @@
+# 轨道 A：OpenWrt 官方 main（最新内核 / apk 包管理器）+ PassWall(Xray)
+#
+# 设备：CMCC RAX3000Q / RAX3000QY（qualcommax / ipq50xx / cmcc_rax3000q）
+# 产物：openwrt-qualcommax-ipq50xx-cmcc_rax3000q-squashfs-factory.ubi
+#       openwrt-qualcommax-ipq50xx-cmcc_rax3000q-squashfs-sysupgrade.bin
+#
+# 说明：
+#   1. 只跟随官方 main，不引入第三方内核补丁 → 内核最新（6.x）
+#   2. PassWall 及其依赖全部取自上游 Openwrt-Passwall 仓库（含 xray-core）
+#   3. 上游因 256MB 内存把 Wi-Fi 在 DTS 里默认关闭了，本工作流可选地重新打开
+#      （注意：上游没有提供 RAX3000Q 的板级 BDF，Wi-Fi 属实验性功能）
+name: A-OpenWrt mainline (RAX3000Q + PassWall)
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'openwrt/openwrt 的提交或分支（留空 = main 最新）'
+        required: false
+        default: ''
+        type: string
+      wifi:
+        description: '打补丁重新打开 Wi-Fi（实验性）'
+        required: false
+        default: true
+        type: boolean
+      ssh:
+        description: '开启 SSH 调试（tmate）'
+        required: false
+        default: false
+        type: boolean
+  schedule:
+    # 每周日 19:00 UTC（北京时间周一 03:00）自动跟踪 main
+    - cron: '0 19 * * 0'
+  repository_dispatch:
+
+env:
+  REPO_URL: https://github.com/openwrt/openwrt
+  REPO_BRANCH: main
+  CONFIG_FILE: configs/mainline.config
+  DIY_P1_SH: scripts/diy-mainline-part1.sh
+  DIY_P2_SH: scripts/diy-mainline-part2.sh
+  TARGET_PATH: qualcommax/ipq50xx
+  DEVICE_SYM: qualcommax_ipq50xx_DEVICE_cmcc_rax3000q
+  TZ: Asia/Shanghai
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 350
+    permissions:
+      contents: write
+
+    steps:
+      - name: 检出本仓库
+        uses: actions/checkout@v4
+
+      - name: 清理磁盘空间
+        run: |
+          set -x
+          df -h
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /usr/local/share/boost /usr/local/share/powershell \
+                      /usr/local/lib/node_modules /usr/local/share/chromium \
+                      /opt/hostedtoolcache/CodeQL /usr/local/.ghcup /usr/local/graalvm || true
+          sudo apt-get -qq clean || true
+          df -h
+
+      - name: 安装编译依赖
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          set -e
+          sudo -E apt-get -qq update
+          sudo -E apt-get -qq install -y ack antlr3 asciidoc autoconf automake autopoint \
+            binutils bison build-essential bzip2 ccache clang cmake cpio curl \
+            device-tree-compiler ecj fastjar flex gawk gettext gcc-multilib g++-multilib \
+            git gnutls-dev gperf haveged help2man intltool lib32gcc-s1 libc6-dev-i386 \
+            libelf-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev \
+            libncurses5-dev libncursesw5 libncursesw5-dev libpython3-dev libreadline-dev \
+            libssl-dev libtool lld llvm lrzsz mkisofs msmtp nano ninja-build p7zip \
+            p7zip-full patch pkgconf python3 python3-pip python3-ply python3-pyelftools \
+            qemu-utils re2c rsync scons squashfs-tools subversion swig texinfo \
+            uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev
+          sudo -E apt-get -qq autoremove --purge
+          sudo -E apt-get -qq clean
+          sudo timedatectl set-timezone "$TZ"
+          sudo mkdir -p /workdir && sudo chown "$USER:$GROUPS" /workdir
+
+      - name: 克隆 OpenWrt 源码
+        working-directory: /workdir
+        run: |
+          set -x
+          git clone --depth 1 "$REPO_URL" -b "$REPO_BRANCH" openwrt
+          cd openwrt
+          if [ -n "${{ inputs.ref }}" ]; then
+            git fetch --depth 1 origin "${{ inputs.ref }}"
+            git checkout -q FETCH_HEAD
+          fi
+          git log -1 --format='OpenWrt HEAD = %H (%ci) %s' | tee "$GITHUB_WORKSPACE/openwrt-head.txt"
+          ln -sf /workdir/openwrt "$GITHUB_WORKSPACE/openwrt"
+
+      - name: 重新打开 Wi-Fi（可选，实验性）
+        working-directory: /workdir/openwrt
+        env:
+          ENABLE_WIFI: ${{ inputs.wifi }}
+        run: |
+          if [ "$ENABLE_WIFI" = "false" ]; then
+            echo "已按输入跳过 Wi-Fi 补丁（保持上游默认：无 Wi-Fi）"
+            exit 0
+          fi
+          python3 "$GITHUB_WORKSPACE/scripts/enable-wifi.py" /workdir/openwrt || {
+            echo "::warning::Wi-Fi 补丁失败（上游可能改了 DTS 路径），按上游默认继续构建";
+          }
+          grep -n 'status = "okay"' target/linux/qualcommax/dts/ipq5018-rax3000q.dts | tail -n 6 || true
+
+      - name: ccache 缓存
+        continue-on-error: true
+        uses: klever1988/cachewrtbuild@main
+        with:
+          ccache: 'true'
+          mixkey: 'mainline-ipq50xx-rax3000q-passwall'
+          prefix: ${{ github.workspace }}/openwrt
+
+      - name: 更新 feeds
+        working-directory: /workdir/openwrt
+        run: ./scripts/feeds update -a
+
+      - name: DIY 第一部分（安装 feeds 之前执行：清理与 PassWall 重名的旧包）
+        working-directory: /workdir/openwrt
+        run: |
+          chmod +x "$GITHUB_WORKSPACE/$DIY_P1_SH"
+          "$GITHUB_WORKSPACE/$DIY_P1_SH"
+
+      - name: 安装 feeds
+        working-directory: /workdir/openwrt
+        run: ./scripts/feeds install -a
+
+      - name: DIY 第二部分（引入 PassWall 上游 + 生成 .config）
+        working-directory: /workdir/openwrt
+        run: |
+          chmod +x "$GITHUB_WORKSPACE/$DIY_P2_SH"
+          "$GITHUB_WORKSPACE/$DIY_P2_SH"
+
+      - name: 校验目标设备与软件包
+        working-directory: /workdir/openwrt
+        run: |
+          set -e
+          echo "== 目标设备 =="
+          grep -E '^CONFIG_TARGET_(qualcommax|qualcommax_ipq50xx|.*DEVICE.*)=y' .config | tee config-targets.txt || true
+          if ! grep -q "^CONFIG_TARGET_${DEVICE_SYM}=y" .config; then
+            echo "::error::设备符号 CONFIG_TARGET_${DEVICE_SYM} 未生效（上游可能改名）"
+            exit 1
+          fi
+
+          echo "== PassWall 相关 =="
+          grep -E '^CONFIG_PACKAGE_(luci-app-passwall|xray-core|v2ray-geo)' .config | tee -a config-targets.txt || true
+          for p in luci-app-passwall xray-core; do
+            grep -q "^CONFIG_PACKAGE_${p}=y" .config || {
+              echo "::error::${p} 没有被选中，检查 feeds 是否拉取成功"
+              exit 1
+            }
+          done
+
+          echo "== 透明代理内核模块 =="
+          grep -E '^CONFIG_PACKAGE_kmod-nft-(tproxy|socket|nat)=y' .config | tee -a config-targets.txt || true
+          # 注意：管道末尾是 tee，退出码恒为 0，判断要用 grep -q 单独做一次
+          if ! grep -qE '^CONFIG_PACKAGE_kmod-nft-(tproxy|socket)=y' .config; then
+            echo "::warning::kmod-nft-tproxy/socket 未选中，PassWall 透明代理可能不工作"
+          fi
+
+          echo "== 无线固件（若上游提供才追加）=="
+          EXTRA=""
+          if grep -q '^define Package/ath11k-firmware-ipq5018$' \
+                package/firmware/ath11k-firmware/Makefile 2>/dev/null; then
+            EXTRA="$EXTRA CONFIG_PACKAGE_ath11k-firmware-ipq5018=y"
+          fi
+          if grep -q 'ipq-wifi-cmcc_rax3000q' package/firmware/ipq-wifi/Makefile 2>/dev/null; then
+            EXTRA="$EXTRA CONFIG_PACKAGE_ipq-wifi-cmcc_rax3000q=y"
+          else
+            echo "::warning::上游没有 ipq-wifi-cmcc_rax3000q 板级 BDF，Wi-Fi 可能无法启动（需要 Wi-Fi 请用轨道 B）"
+          fi
+          if [ -n "$EXTRA" ]; then
+            for c in $EXTRA; do echo "$c" >> .config; done
+            make defconfig
+            echo "$EXTRA" | tr ' ' '\n' | grep -v '^$' | tee wifi-packages.txt
+          fi
+
+      - name: 叠加自定义 files/（Kwrt 风格默认设置）
+        if: hashFiles('files/**') != ''
+        run: |
+          mkdir -p /workdir/openwrt/files
+          cp -a "$GITHUB_WORKSPACE/files/." /workdir/openwrt/files/
+          chmod +x /workdir/openwrt/files/etc/uci-defaults/*
+          find /workdir/openwrt/files -type f | sort
+
+      - name: 下载依赖包
+        working-directory: /workdir/openwrt
+        run: |
+          make download -j8 || make download -j1 V=s
+          find dl -size -1024c -exec ls -l {} \; -exec rm -f {} \; || true
+
+      - name: SSH 调试（仅当手动勾选）
+        if: ${{ inputs.ssh }}
+        uses: owenthereal/action-upterm@v1
+
+      - name: 编译固件
+        id: compile
+        working-directory: /workdir/openwrt
+        run: |
+          echo "$(nproc) 线程编译"
+          make -j"$(nproc)" || make -j1 || make -j1 V=s
+          echo "status=success" >> "$GITHUB_OUTPUT"
+
+      - name: 收集产物
+        if: steps.compile.outputs.status == 'success'
+        run: |
+          set -x
+          mkdir -p out
+          ls -lh /workdir/openwrt/bin/targets/${TARGET_PATH}/
+          cp -a /workdir/openwrt/bin/targets/${TARGET_PATH}/*.ubi out/ 2>/dev/null || true
+          cp -a /workdir/openwrt/bin/targets/${TARGET_PATH}/*.bin out/ 2>/dev/null || true
+          cp -a /workdir/openwrt/bin/targets/${TARGET_PATH}/profiles.json out/ 2>/dev/null || true
+          cp -a /workdir/openwrt/.config out/config.final.txt || true
+          cp -a "$GITHUB_WORKSPACE/openwrt-head.txt" out/ 2>/dev/null || true
+          cp -a /workdir/openwrt/config-targets.txt out/ 2>/dev/null || true
+          ls -lh out/
+          {
+            echo "## 轨道 A 编译完成"
+            echo ""
+            cat "$GITHUB_WORKSPACE/openwrt-head.txt"
+            echo ""
+            echo "### 产物"
+            echo '```'
+            ls -lh out/
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 上传产物
+        if: steps.compile.outputs.status == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: openwrt-mainline-ipq50xx-${{ github.run_number }}
+          path: out/
+          if-no-files-found: warn
+
+      - name: 失败时保存排查信息
+        if: failure()
+        run: |
+          mkdir -p debug
+          cp /workdir/openwrt/.config debug/ 2>/dev/null || true
+          cp /workdir/openwrt/config-targets.txt debug/ 2>/dev/null || true
+          cp -r /workdir/openwrt/logs debug/ 2>/dev/null || true
+          cp /workdir/openwrt/.config.old debug/ 2>/dev/null || true
+
+      - name: 上传排查信息
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mainline-debug-${{ github.run_number }}
+          path: debug/
+          if-no-files-found: ignore
+
+      - name: 发布 Release
+        if: steps.compile.outputs.status == 'success'
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: mainline-ipq50xx-${{ github.run_number }}
+          name: 轨道A OpenWrt mainline #${{ github.run_number }}
+          body: |
+            OpenWrt 官方 main（qualcommax / ipq50xx / cmcc_rax3000q）
+            预置：LuCI 中文 + PassWall + Xray（兼容 v2ray 协议/订阅）
+            刷机：进 U-Boot 网页（192.168.1.1）刷 squashfs-factory.ubi
+          files: out/*
+          fail_on_unmatched_files: false
