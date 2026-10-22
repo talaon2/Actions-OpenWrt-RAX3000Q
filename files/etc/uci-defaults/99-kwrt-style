@@ -8,7 +8,7 @@ uci -q set luci.main.mediaurlbase=/luci-static/argon
 uci -q set luci.main.lang=zh_cn
 uci -q commit luci
 
-uci -q set system.@system[0].hostname='RAX3000Q'
+uci -q set system.@system[0].hostname='RAX3000QY'
 uci -q set system.@system[0].zonename='Asia/Shanghai'
 uci -q set system.@system[0].timezone='CST-8'
 uci -q commit system
