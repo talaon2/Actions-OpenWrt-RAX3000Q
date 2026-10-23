@@ -10,7 +10,7 @@
 |---|---|
 | 系统 | ImmortalWrt 21.02 + QSDK，Linux 5.4，包管理 `opkg` |
 | 代理 | PassWall + `xray-core`（VLESS / VMess / Trojan / Shadowsocks） |
-| 分流规则 | `v2ray-geoip` + `v2ray-geosite` |
+| 分流规则 | 固件内不含规则数据，首次使用在 PassWall 点「更新规则」在线获取 GeoIP / GeoSite |
 | 无线 | IPQ5018（2.4G）+ QCN6102（5G），含板级 BDF |
 | 硬件加速 | NSS offload（NAT + Wi-Fi） |
 | 界面 | Argon 主题（`luci-app-argon-config` 可调），开机中文 |
@@ -77,8 +77,10 @@
 
 1. **节点列表**：用订阅链接或分享链接导入节点。
 2. **全局设置 → 运行模式**：建议先用 `中国列表以外`。
-3. **DNS**：`ChinaDNS-NG` 或 `Dnsmasq`；首次使用在 PassWall 里点一次「更新规则」拉取最新
-   GeoIP / GeoSite 数据。
+3. **规则数据（首次必做）**：固件内**不含** GeoIP / GeoSite 数据——21.02 源里没有独立的
+   规则数据包，而 `v2ray-geodata` 写死的下载源已失效。请联网后在 PassWall 里点一次
+   「更新规则」在线拉取，之后可在设置里开启定时更新。
+4. **DNS**：`ChinaDNS-NG` 或 `Dnsmasq`。
 4. 透明代理所需的 `kmod-nft-tproxy` / `kmod-nft-socket` 已编进固件。
 
 **协议支持**：Xray 原生支持 VLESS、VMess、Trojan、Shadowsocks，v2ray 订阅链接可直接导入。
@@ -106,7 +108,8 @@
 |---|---|
 | `feeds/packages/lang/golang` 换成 `kenzok8/golang@1.25` | 上游自带 Go 1.19，而 xray-core 的 `go.mod` 要求 Go ≥ 1.20 |
 | `SUPPORTED_DEVICES` 追加 `cmcc,rax3000qy` | 本机型实际 `board_name` 为 `rax3000qy`，否则 `sysupgrade` 会拒绝刷入 |
-| 关闭 `v2ray-geodata` | 该包写死的 `dlc.dat` 数据源已失效（404），会导致编译失败；规则数据改用 `v2ray-geoip` / `v2ray-geosite` |
+| 关闭 `v2ray-geodata` | 该包写死了 `dlc.dat.20231202050515`，对应 release 已 404，编译会在下载阶段失败。21.02 源里没有独立的 `v2ray-geoip` / `v2ray-geosite` 包，规则数据改为首次使用时在 PassWall 在线更新 |
+| 关闭全部 `=m` 包 | 种子配置里大量包被设为 `=m`（只产出 ipk、不进固件），仍会被完整编译一遍：既拖慢编译，又可能因写死旧下载链接而失败 |
 | 仅保留 `xray-core` | `v2ray-core` 体积约 20MB 且需额外一轮 Go 编译；Xray 已完全兼容 v2ray 协议与订阅 |
 
 ### 目录结构
