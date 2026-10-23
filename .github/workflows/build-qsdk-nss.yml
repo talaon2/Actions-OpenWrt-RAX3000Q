@@ -113,8 +113,8 @@ jobs:
           echo "== 目标设备 =="
           grep -E '^CONFIG_TARGET_ipq50xx_arm_DEVICE_cmcc_rax3000q=y' .config
 
-          echo "== PassWall 及其依赖 =="
-          for p in luci-app-passwall xray-core v2ray-geoip v2ray-geosite; do
+          echo "== PassWall 及其核心 =="
+          for p in luci-app-passwall xray-core; do
             grep -q "^CONFIG_PACKAGE_${p}=y" .config || {
               echo "::error::${p} 没有被选中"
               exit 1
@@ -131,15 +131,19 @@ jobs:
             exit 1
           }
 
-          echo "== 数据源已失效的包必须关闭 =="
-          ! grep -q '^CONFIG_PACKAGE_v2ray-geodata=y' .config || {
-            echo "::error::v2ray-geodata 仍处于开启状态（其数据源已 404，会在下载阶段失败）"
+          echo "== 数据源已失效的包必须彻底关闭（=y 和 =m 都会触发下载）=="
+          ! grep -qE '^CONFIG_PACKAGE_v2ray-geodata=[ym]' .config || {
+            echo "::error::v2ray-geodata 仍处于开启状态（数据源已 404，会在下载阶段失败）"
             exit 1
           }
 
-          if grep -q '^CONFIG_PACKAGE_v2ray-core=y' .config; then
-            echo "::warning::v2ray-core 被依赖重新拉入，镜像体积与编译时间会增加"
+          if grep -qE '^CONFIG_PACKAGE_v2ray-core=[ym]' .config; then
+            echo "::warning::v2ray-core 仍在编译列表中，会增加体积与编译时间"
           fi
+
+          echo "== 编译规模 =="
+          echo "  打进固件的包(=y): $(grep -c '^CONFIG_PACKAGE_.*=y' .config || true)"
+          echo "  仅生成 ipk 的包(=m): $(grep -cE '^CONFIG_PACKAGE_.*=m$' .config || true)"
 
       - name: 叠加自定义 files/（Kwrt 风格默认设置）
         if: hashFiles('files/**') != ''
