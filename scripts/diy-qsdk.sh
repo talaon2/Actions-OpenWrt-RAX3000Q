@@ -74,15 +74,15 @@ CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Xray=y
 # 只保留 xray-core：xray 兼容 v2ray 协议与订阅；v2ray-core 体积约 20MB 且要用 Go
 # 再编一遍（编译耗时翻倍），128MB NAND / 256MB RAM 的机器上没必要两个都编
 # CONFIG_PACKAGE_luci-app-passwall_INCLUDE_V2ray is not set
-# 注意：21.02 的 v2ray-geodata 写死了 dlc.dat.20231202050515，数据源已 404，
-# 开着它会让整个编译失败；改由 v2ray-geoip / v2ray-geosite 提供规则数据，
-# 装好后可在 PassWall 里点「更新规则」在线拉取最新 geodata
+# 注意：21.02 的 v2ray-geodata 写死了 dlc.dat.20231202050515，该 release 已 404，
+# 开着会让整个编译失败（=m 也一样会被编译！）；21.02 源里又没有独立的
+# v2ray-geoip / v2ray-geosite 包，所以固件内不含规则数据，
+# 首次使用在 PassWall 里点「更新规则」在线拉取即可
 # CONFIG_PACKAGE_luci-app-passwall_INCLUDE_V2ray_Geodata is not set
+# CONFIG_PACKAGE_v2ray-geodata is not set
 CONFIG_PACKAGE_luci-i18n-passwall-zh-cn=y
 CONFIG_PACKAGE_xray-core=y
 # CONFIG_PACKAGE_v2ray-core is not set
-CONFIG_PACKAGE_v2ray-geoip=y
-CONFIG_PACKAGE_v2ray-geosite=y
 # 不需要的服务端组件，省体积
 # CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Libev_Server is not set
 # CONFIG_PACKAGE_luci-app-passwall_INCLUDE_ShadowsocksR_Libev_Server is not set
@@ -121,12 +121,19 @@ CONFIG_PACKAGE_luci-app-ttyd=y
 CONFIG_PACKAGE_luci-i18n-ttyd-zh-cn=y
 EOF
 
-# 参考配置里可能直接选了 v2ray-geodata，一律关掉（数据源 404）
-sed -i 's|^CONFIG_PACKAGE_v2ray-geodata=y|# CONFIG_PACKAGE_v2ray-geodata is not set|' .config
-sed -i 's|^CONFIG_PACKAGE_luci-app-passwall_INCLUDE_V2ray_Geodata=y|# CONFIG_PACKAGE_luci-app-passwall_INCLUDE_V2ray_Geodata is not set|' .config
+# 一律关掉这些包：要么数据源已失效（v2ray-geodata），要么没必要编（v2ray-core）。
+# 关键：必须同时匹配 =y 和 =m —— 只关 =y 的话，=m 的包照样会被编译并触发下载
+sed -i 's|^CONFIG_PACKAGE_v2ray-geodata=[ym]|# CONFIG_PACKAGE_v2ray-geodata is not set|' .config
+sed -i 's|^CONFIG_PACKAGE_luci-app-passwall_INCLUDE_V2ray_Geodata=[ym]|# CONFIG_PACKAGE_luci-app-passwall_INCLUDE_V2ray_Geodata is not set|' .config
 # PassWall 开启 INCLUDE_V2ray 会通过依赖把 v2ray-core 拉进来，这里统一关掉只留 xray
-sed -i 's|^CONFIG_PACKAGE_luci-app-passwall_INCLUDE_V2ray=y|# CONFIG_PACKAGE_luci-app-passwall_INCLUDE_V2ray is not set|' .config
-sed -i 's|^CONFIG_PACKAGE_v2ray-core=y|# CONFIG_PACKAGE_v2ray-core is not set|' .config
+sed -i 's|^CONFIG_PACKAGE_luci-app-passwall_INCLUDE_V2ray=[ym]|# CONFIG_PACKAGE_luci-app-passwall_INCLUDE_V2ray is not set|' .config
+sed -i 's|^CONFIG_PACKAGE_v2ray-core=[ym]|# CONFIG_PACKAGE_v2ray-core is not set|' .config
+
+# 种子配置里有大量 =m 的包：它们只生成 ipk、不会打进固件，但仍会被完整编译一遍，
+# 既拖慢编译（这是上一版跑 2 小时的主要原因），又可能因为写死旧下载链接而失败
+# （v2ray-geodata 就是这么挂的）。这里统一关掉，只保留真正要进固件的 =y 包
+sed -i 's|^CONFIG_PACKAGE_\([A-Za-z0-9_.-]*\)=m$|# CONFIG_PACKAGE_\1 is not set|' .config
+echo "  已关闭 =m 包（只保留 =y）：剩余待编译包数 = $(grep -c '^CONFIG_PACKAGE_.*=y' .config)"
 
 echo "== make defconfig =="
 make defconfig
