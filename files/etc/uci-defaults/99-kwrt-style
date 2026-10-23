@@ -1,0 +1,72 @@
+#!/bin/sh
+# Kwrt 风格界面：Argon 主题 + 中文 + 常用系统默认值
+# （首次启动时由 uci-defaults 执行，执行完自动删除）
+#
+# 需要固件里已安装 luci-theme-argon（可选 luci-app-argon-config）
+
+uci -q set luci.main.mediaurlbase=/luci-static/argon
+uci -q set luci.main.lang=zh-cn
+uci -q commit luci
+
+uci -q set system.@system[0].hostname='RAX3000QY'
+uci -q set system.@system[0].zonename='Asia/Shanghai'
+uci -q set system.@system[0].timezone='CST-8'
+uci -q commit system
+
+# Argon 主题外观（luci-app-argon-config 安装后才会有 /etc/config/argon）
+if [ -f /etc/config/argon ]; then
+	uci -q set argon.@global[0].mode=default
+	uci -q set argon.@global[0].blur=10
+	uci -q set argon.@global[0].transparency=10
+	uci -q commit argon
+fi
+
+# ---- 局域网地址 ----
+uci -q set network.lan.ipaddr='192.168.10.1'
+uci -q set network.lan.netmask='255.255.255.0'
+uci -q commit network
+
+# ---- root 默认密码 ----
+passwd root <<'PWEOF' >/dev/null 2>&1
+root
+root
+PWEOF
+# 兜底：若上面没生效（busybox 版本差异），再用管道设一次
+if grep -q '^root::' /etc/shadow 2>/dev/null; then
+	(echo root; echo root) | passwd root >/dev/null 2>&1 || true
+fi
+
+# ---- 无线：开机即用 SSID RAX3000（开放网络，无密码）----
+# 首次启动时若还没生成 /etc/config/wireless 就先生成一份
+if [ ! -s /etc/config/wireless ]; then
+	/sbin/wifi config >/etc/config/wireless 2>/dev/null \
+		|| /sbin/wifi detect >/etc/config/wireless 2>/dev/null \
+		|| rm -f /etc/config/wireless
+fi
+
+if [ -s /etc/config/wireless ]; then
+	# 按索引遍历实际存在的无线设备/接口：
+	# 直接 uci set wireless.radio2.xxx 会在节不存在时创建出一个没有 type 的空节，
+	# 反而让 wifi 起不来，所以这里只对真实存在的节操作
+	d=0
+	while uci -q get wireless.@wifi-device[$d] >/dev/null 2>&1; do
+		uci -q set wireless.@wifi-device[$d].disabled=0
+		d=$((d + 1))
+	done
+	i=0
+	while uci -q get wireless.@wifi-iface[$i] >/dev/null 2>&1; do
+		uci -q set wireless.@wifi-iface[$i].disabled=0
+		uci -q set wireless.@wifi-iface[$i].ssid='RAX3000'
+		uci -q set wireless.@wifi-iface[$i].encryption='none'
+		uci -q delete wireless.@wifi-iface[$i].key 2>/dev/null
+		i=$((i + 1))
+	done
+	uci -q commit wireless
+	# 让配置在本次启动就生效；此时驱动可能还没就绪，失败也不影响（重启后同样生效）
+	/sbin/wifi reload >/dev/null 2>&1 || true
+fi
+
+# 清除 LuCI 的模块/菜单缓存，保证固件里新增的自定义页面（设置向导）能出现
+rm -rf /tmp/luci-modulecache /tmp/luci-indexcache /tmp/luci-sessions 2>/dev/null
+
+exit 0
