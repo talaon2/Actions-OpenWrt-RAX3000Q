@@ -1,0 +1,10 @@
+.gh_token
+*.token
+auth_token
+out/
+debug/
+
+# 开发/审核备忘，仅本地使用，不进仓库
+AGENTS.md
+*.local.md
+

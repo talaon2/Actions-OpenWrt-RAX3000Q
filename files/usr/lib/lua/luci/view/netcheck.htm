@@ -1,0 +1,45 @@
+<%+header%>
+<h2><%:网络检测%></h2>
+<div class="cbi-map">
+	<div class="cbi-section">
+		<div class="cbi-section-descr">
+			检测当前网络是否连通，并显示本机出口 IP 与归属地。
+		</div>
+		<div id="netcheck-result" style="padding:10px 0;line-height:1.8">正在检测，请稍候…</div>
+		<input type="button" class="cbi-button cbi-button-apply" value="重新检测" onclick="netcheck_run()" />
+	</div>
+</div>
+
+<script type="text/javascript">//<![CDATA[
+	// 用相对路径拼出接口地址，避免依赖模板里的 URL 构造函数
+	var netcheck_url = window.location.pathname.replace(/\/admin\/services\/.*$/, '/admin/services/netcheck/data');
+
+	function netcheck_run() {
+		var box = document.getElementById('netcheck-result');
+		if (!box) return;
+		box.innerHTML = '正在检测，请稍候…';
+
+		XHR.get(netcheck_url, null, function(x, d) {
+			if (!d) {
+				box.innerHTML = '<font color="red">检测失败：无法获取检测结果</font>';
+				return;
+			}
+			function ok(v, text) {
+				return v ? '<font color="green">✓ ' + text + '</font>'
+				         : '<font color="red">✗ ' + text + '</font>';
+			}
+			var html = '<table style="border-collapse:collapse">';
+			html += '<tr><td style="padding-right:20px">出口 IP</td><td>' + d.ip + '</td></tr>';
+			html += '<tr><td>国家 / 地区</td><td>' + d.country + '</td></tr>';
+			html += '<tr><td>地区 / 城市</td><td>' + d.region + ' ' + d.city + '</td></tr>';
+			html += '<tr><td>运营商</td><td>' + d.isp + '</td></tr>';
+			html += '<tr><td>国内站点</td><td>' + ok(d.cn_ok, 'baidu.com 连通') + '</td></tr>';
+			html += '<tr><td>国外站点</td><td>' + ok(d.gw_ok, 'google.com 连通') + '</td></tr>';
+			html += '</table>';
+			box.innerHTML = html;
+		});
+	}
+
+	netcheck_run();
+//]]></script>
+<%+footer%>

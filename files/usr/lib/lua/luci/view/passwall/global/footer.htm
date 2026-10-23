@@ -1,0 +1,176 @@
+<%
+local api = require "luci.passwall.api"
+-%>
+<script type="text/javascript">
+	//<![CDATA[
+	function go() {
+		var _status = document.getElementsByClassName('_status');
+		for (var i = 0; i < _status.length; i++) {
+			var id = _status[i].getAttribute("socks_id");
+			XHR.get('<%=api.url("socks_status")%>', {
+					index: i,
+					id: id
+				},
+				function(x, result) {
+					var index = result.index;
+					var div = '';
+					var div1 = '<font style="font-weight:bold;" color="green">✓</font>&nbsp';
+					var div2 = '<font style="font-weight:bold;" color="red">X</font>&nbsp';
+
+					if (result.socks_status) {
+						div += div1;
+					} else {
+						div += div2;
+					}
+					if (result.use_http) {
+						if (result.http_status) {
+							div += div1;
+						} else {
+							div += div2;
+						}
+					}
+					_status[index].innerHTML = div;
+				}
+			);
+		}
+
+		var global_id = null;
+		var global = document.getElementById("cbi-passwall-global");
+		if (global) {
+			var node = global.getElementsByClassName("cbi-section-node")[0];
+			var node_id = node.getAttribute("id");
+			global_id = node_id;
+			var reg1 = new RegExp("(?<=" + node_id + "-).*?(?=(_node))")
+			for (var i = 0; i < node.childNodes.length; i++) {
+				if (node.childNodes[i].childNodes && node.childNodes[i].childNodes.length > 0) {
+					for (var k = 0; k < node.childNodes[i].childNodes.length; k++) {
+						try {
+							var dom = node.childNodes[i].childNodes[k];
+							if (dom.id) {
+								var s = dom.id.match(reg1);
+								if (s) {
+									var cbi_id = global_id + "-"
+									var dom_id = dom.id.split(cbi_id).join(cbi_id.split("-").join(".")).split("cbi.").join("cbid.")
+									var node_select = document.getElementsByName(dom_id)[0];
+									var node_select_value = node_select.value;
+									if (node_select_value && node_select_value != "nil" && node_select_value.indexOf("socks://") != 0 && node_select_value.indexOf("_default") != 0 && node_select_value.indexOf("_direct") != 0 && node_select_value.indexOf("_blackhole") != 0) {
+										if (global_id != null && node_select_value.indexOf("tcp") == 0) {
+											var d = global_id + "-tcp_node";
+											d = d.replace("cbi-", "cbid-").replace(new RegExp("-", 'g'), ".");
+											var dom = document.getElementsByName(d)[0];
+											var _node_select_value = dom.value;
+											if (_node_select_value && _node_select_value != "nil") {
+												node_select_value = _node_select_value;
+											}
+										}
+
+										if (node_select.tagName == "INPUT") {
+											node_select = document.getElementById("cbi.combobox." + dom_id);
+										}
+
+										var new_a = document.createElement("a");
+										new_a.innerHTML = "<%:Edit%>";
+										new_a.href = "#";
+										new_a.setAttribute("onclick", "location.href='" + '<%=api.url("node_config")%>' + "/" + node_select_value + "'");
+										var new_html = new_a.outerHTML;
+
+										if (s[0] == "tcp" || s[0] == "udp") {
+											var log_a = document.createElement("a");
+											log_a.innerHTML = "<%:Log%>";
+											log_a.href = "#";
+											log_a.setAttribute("onclick", "window.open('" + '<%=api.url("get_redir_log")%>' + "?proto=" + s[0] + "', '_blank')");
+											new_html += "&nbsp&nbsp" + log_a.outerHTML;
+										}
+
+										node_select.insertAdjacentHTML("afterend", "&nbsp&nbsp" + new_html);
+									}
+								}
+							}
+						} catch(err) {
+						}
+					}
+				}
+			}
+
+		var socks = document.getElementById("cbi-passwall-socks");
+		if (socks) {
+			var socks_enabled_dom = document.getElementById(global_id + "-socks_enabled");
+			socks_enabled_dom.parentNode.removeChild(socks_enabled_dom);
+			var descr = socks.getElementsByClassName("cbi-section-descr")[0];
+			descr.outerHTML = socks_enabled_dom.outerHTML;
+			rows = socks.getElementsByClassName("cbi-section-table-row");
+			for (var i = 0; i < rows.length; i++) {
+				try {
+					var row = rows[i];
+					var id = row.id;
+					if (!id) continue;
+					var dom_id = id + "-node";
+					var node = document.getElementById(dom_id);
+					var dom_id = dom_id.replace("cbi-", "cbid-").replace(new RegExp("-", 'g'), ".");
+					var node_select = document.getElementsByName(dom_id)[0];
+					var node_select_value = node_select.value;
+					if (node_select_value && node_select_value != "nil") {
+						var v = document.getElementById(dom_id + "-" + node_select_value);
+						if (v) {
+							node_select.title = v.text;
+						} else {
+							node_select.title = node_select.options[node_select.options.selectedIndex].text;
+						}
+
+						var new_a = document.createElement("a");
+						new_a.innerHTML = "<%:Edit%>";
+						new_a.href = "#";
+						new_a.setAttribute("onclick","location.href='" + '<%=api.url("node_config")%>' + "/" + node_select_value + "'");
+
+						node_select.insertAdjacentHTML("afterend", "&nbsp&nbsp" + new_a.outerHTML);
+					}
+				} catch(err) {
+				}
+			}
+		}
+	}
+	setTimeout("go()", 1000);
+
+	//]]>
+</script>
+
+<div class="cbi-section" id="pw-netcheck">
+	<h3><%:网络检测%></h3>
+	<div class="cbi-section-descr">
+		显示当前出口 IP、归属地，以及国内 / 国外站点是否连通。
+	</div>
+	<div id="pw-netcheck-result" style="padding:8px 0;line-height:1.8">正在检测，请稍候…</div>
+	<input type="button" class="cbi-button cbi-button-apply" value="重新检测" onclick="pw_netcheck()" />
+</div>
+
+<script type="text/javascript">//<![CDATA[
+	function pw_netcheck() {
+		var box = document.getElementById('pw-netcheck-result');
+		if (!box) return;
+		box.innerHTML = '正在检测，请稍候…';
+
+		var url = window.location.pathname.replace(/\/admin\/services\/.*$/, '/admin/services/netcheck/data');
+
+		XHR.get(url, null, function(x, d) {
+			if (!d) {
+				box.innerHTML = '<font color="red">检测失败：无法获取结果</font>';
+				return;
+			}
+			function flag(v, text) {
+				return v ? '<font color="green">✓ ' + text + '</font>'
+				         : '<font color="red">✗ ' + text + '</font>';
+			}
+			var html = '<table style="border-collapse:collapse">';
+			html += '<tr><td style="padding-right:20px">出口 IP</td><td>' + d.ip + '</td></tr>';
+			html += '<tr><td style="padding-right:20px">国家 / 地区</td><td>' + d.country + '</td></tr>';
+			html += '<tr><td style="padding-right:20px">地区 / 城市</td><td>' + d.region + ' ' + d.city + '</td></tr>';
+			html += '<tr><td style="padding-right:20px">运营商</td><td>' + d.isp + '</td></tr>';
+			html += '<tr><td style="padding-right:20px">国内站点</td><td>' + flag(d.cn_ok, 'baidu.com 连通') + '</td></tr>';
+			html += '<tr><td style="padding-right:20px">国外站点</td><td>' + flag(d.gw_ok, 'google.com 连通') + '</td></tr>';
+			html += '</table>';
+			box.innerHTML = html;
+		});
+	}
+
+	setTimeout("pw_netcheck()", 1500);
+//]]></script>
